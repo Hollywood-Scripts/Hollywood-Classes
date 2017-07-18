@@ -1,0 +1,53 @@
+/*
+** DimEnum()
+**
+** by Samuel D. Crow
+*/
+Global Enum={} ; Allocate the table for the interface
+
+Procedure Enum:_workloop(start,tbl,param) ; private
+	For count=start To tbl.end Do tbl[param[count]]=count
+	Return (tbl)
+EndProcedure
+
+/*
+** New()
+**
+** Initializes a new enumeration
+**
+** Note:  It is recommended to have 0 as the start parameter for most occasions
+**    and set it to indicate an uninitialized value has been used
+*/
+Procedure Enum:New(start, ...)
+	Local param=arg.n, count, out={
+		["start"]=start,
+		["end"]=param-start-1
+	}
+	Return (self:_workloop(start,out,arg)
+EndProcedure
+
+/*
+** Extend()
+**
+** Create a new enumeration that extends an old one
+*/
+Procedure Enum:Extend(tbl, ...)
+	Local out=CopyTable(tbl), count, param=arg.n, start=out.end+1
+	out.end = out.end + param
+	Return (self:_workloop(start,out,arg)
+EndProcedure
+
+/*
+** Test()
+**
+** Unit test
+*/
+Procedure Enum:Test()
+	Local test=self:New(0,"illegal","a","b","c")
+	Local test2=self:Extend(test,"d","e","f")
+	Assert(test.end=3)
+	Assert(test.start=0)
+	Assert(test2.end=6)
+	Assert(test2.start=test.start)
+	DebugPrint("Success")
+EndProcedure
