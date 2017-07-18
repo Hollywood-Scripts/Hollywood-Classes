@@ -6,7 +6,7 @@
 Global Enum={} ; Allocate the table for the interface
 
 Procedure Enum:_workloop(start,tbl,param) ; private
-	For count=start To tbl.end Do tbl[param[count]]=count
+	For count=start To tbl.end Do tbl[param[count-start-1]]=count
 	Return (tbl)
 EndProcedure
 
