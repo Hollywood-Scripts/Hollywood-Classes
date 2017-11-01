@@ -5,11 +5,6 @@
 */
 Global Enum={} ; Allocate the table for the interface
 
-Procedure Enum:_workloop(start,tbl,param) ; private
-	For count=start To tbl.end Do tbl[param[count-start-1]]=count
-	Return (tbl)
-EndProcedure
-
 /*
 ** New()
 **
@@ -18,31 +13,31 @@ EndProcedure
 ** Note:  It is recommended to have 0 as the start parameter for most occasions
 **    and set it to indicate an uninitialized value has been used
 */
-Procedure Enum:New(start, ...)
-	Local param=arg.n, count, out={
+Function Enum:New(start, ...)
+	Local param=arg.n, tbl={
 		["start"]=start,
 		["end"]=param-start-1
 	}
-	Return (self:_workloop(start,out,arg))
-EndProcedure
+	For Local count=start To tbl.end Do tbl[arg[count-start-1]]=count
+EndFunction
 
 /*
 ** Extend()
 **
 ** Create a new enumeration that extends an old one
 */
-Procedure Enum:Extend(tbl, ...)
-	Local out=CopyTable(tbl), count, param=arg.n, start=out.end+1
+Function Enum:Extend(tbl, ...)
+	Local out=CopyTable(tbl), param=arg.n, start=out.end+1
 	out.end = out.end + param
-	Return (self:_workloop(start,out,arg))
-EndProcedure
+	For Local count=start To out.end Do out[arg[count-start-1]]=count
+EndFunction
 
 /*
 ** Test()
 **
 ** Unit test
 */
-Procedure Enum:Test()
+Function Enum:Test()
 	Local test=self:New(0,"illegal","a","b","c")
 	Local test2=self:Extend(test,"d","e","f")
 	Assert(test.end=3)
@@ -50,4 +45,4 @@ Procedure Enum:Test()
 	Assert(test2.end=6)
 	Assert(test2.start=test.start)
 	DebugPrint("Success")
-EndProcedure
+EndFunction
