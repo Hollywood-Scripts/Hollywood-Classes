@@ -23,7 +23,7 @@ Procedure Enum:New(start, ...)
 		["start"]=start,
 		["end"]=param-start-1
 	}
-	Return (self:_workloop(start,out,arg)
+	Return (self:_workloop(start,out,arg))
 EndProcedure
 
 /*
@@ -34,7 +34,7 @@ EndProcedure
 Procedure Enum:Extend(tbl, ...)
 	Local out=CopyTable(tbl), count, param=arg.n, start=out.end+1
 	out.end = out.end + param
-	Return (self:_workloop(start,out,arg)
+	Return (self:_workloop(start,out,arg))
 EndProcedure
 
 /*
