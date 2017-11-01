@@ -19,6 +19,7 @@ Function Enum:New(start, ...)
 		["end"]=param-start-1
 	}
 	For Local count=start To tbl.end Do tbl[arg[count-start-1]]=count
+	Return(tbl)
 EndFunction
 
 /*
@@ -30,6 +31,7 @@ Function Enum:Extend(tbl, ...)
 	Local out=CopyTable(tbl), param=arg.n, start=out.end+1
 	out.end = out.end + param
 	For Local count=start To out.end Do out[arg[count-start-1]]=count
+	Return(out)
 EndFunction
 
 /*
