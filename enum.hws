@@ -1,7 +1,9 @@
 /*
-** Enum()
+** Enum.hws
 **
+** an Enumeration class
 ** by Samuel D. Crow
+**
 */
 Global Enum={} ; Allocate the table for the interface
 Enum._v={} ; Allocate vtable for class methods
@@ -20,8 +22,8 @@ Function Enum.New(starting, ...)
 	Local tbl = CopyTable(Enum._v) ; Instatiate base class
 	tbl["_start"] = starting
 	tbl["_end"] = starting+arg.n-1
-	tbl["_body"]={}
-	For Local count = starting To tbl._end Do tbl._body[arg[count-starting]] = count
+	tbl["_data"]={}
+	For Local count = starting To tbl._end Do tbl._data[arg[count-starting]] = count
 	Return(tbl)
 EndFunction
 
@@ -33,11 +35,31 @@ EndFunction
 Function Enum._v.dump(self)
 	DebugPrint("_start=" .. self._start)
 	DebugPrint("_end=" .. self._end)
-	DebugPrint("_body={")
-	For i,j In Pairs(self._body)
+	DebugPrint("_data={")
+	For i,j In Pairs(self._data)
 		DebugPrint("  " .. i .. "=" .. j)
 	Next
 	DebugPrint("}")
+	If HaveItem(self,"_reflection")
+		DebugPrint("_reflection={")
+		For i,j In Pairs(self._reflection)
+			DebugPrint("  ".. i .. "=" .. j)
+		Next
+		DebugPrint("}")
+	EndIf
+EndFunction
+
+/*
+** CreateReflection()
+**
+** Creates a "reflection" table to link values back to their keys
+*/
+Function Enum._v.CreateReflection(self)
+	If HaveItem(self,"_reflection") Then Return
+	self._reflection={}
+	For i,j In Pairs(self._data)
+		self._reflection[j]=i
+	Next
 EndFunction
 
 /*
@@ -48,8 +70,11 @@ EndFunction
 Function Enum._v.append(self, ...)
 	Local ending = self._end+arg.n
 	Local starting = self._end+1
-	For Local count = starting To ending Do self._body[arg[count-starting]] = count
+	For Local count = starting To ending Do self._data[arg[count-starting]] = count
 	self["_end"] = ending
+	If HaveItem(self, "_reflection")
+		For count = starting To ending Do self._reflection[count] = arg[count-starting]
+	EndIf
 EndFunction
 
 /*
@@ -57,8 +82,10 @@ EndFunction
 **
 ** Create child enumeration of existing one
 */
-Function Enum._v.extend(self, ...)
+Function Enum._v.extend(self, Reflect, ...)
 	Local tbl = CopyTable(self)
+	If HaveItem(tbl, "_reflection") And (Reflect = False) Then tbl._reflection = Nil
 	tbl:append(Unpack(arg))
 	Return(tbl)
 EndFunction
+
