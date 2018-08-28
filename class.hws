@@ -1,0 +1,290 @@
+/*
+** OOP Class implementation
+**
+** By Samuel D. Crow
+**
+** See LICENSE file for licensing details
+**
+*/
+
+;TODO add checking
+;TODO add exception handling support
+;TODO add locale support to error messages and data types
+
+Global _class={} ;namespace
+
+;indicate that this file has been included
+Const #CLASS = True
+
+;_parent is deliberately left undefined for root class
+_class["_interface"]={} ;global interface table
+_class["_static"]={} ;global static member table
+_class["_name"]="Root Class"
+_class["_v"]={} ;vector table
+_class["_data"]={} ;fields
+_class["_implement"]={} ;interfaces implemented
+
+;*****************************************************************************
+;helper functions
+;*****************************************************************************
+
+;clear parameter number from vararg table to avoid namespace issues
+Function p_RawArg(a)
+	RawSet(a, "n", Nil)
+	Return a
+EndFunction
+
+;*****************************************************************************
+;methods
+;*****************************************************************************
+
+; method declaration
+; params is table containing default values of each parameter key
+; body is an actual function definition with self passed as first argument
+Function Method:_class(name, params, body)
+	If RawGet(self, name)
+		Error(name .. " method already exists\nin class " .. self._name)
+	EndIf
+	If GetType(params) <> #TABLE
+		Error("Method parameter defaults must be passed as a table")
+	EndIf
+	Local buf={}
+	buf["_body"]=body
+	buf["_params"]=params
+	self._v[name]=buf
+	self[name]=self._v[name]
+EndFunction
+
+; return method and containing class if they are available
+Function GetMethod:_class(name)
+	Local c=self, m
+	Repeat
+		m=RawGet(c._v, name)
+		If m Then Return m, c
+		c=RawGet(c, "_parent") ; check for inheritance
+	Until IsNil(c)
+	Return Nil, Nil
+EndFunction
+
+;inherit from parent method
+Function DoParentMethod:_class(name, params)
+	Local m, c=self.GetMethod(name)
+
+	;propogate default entries
+	For Local i In m._params
+		If IsNil(RawGet(params, i)) Then params[i]=m._pararms.i
+	Next
+	Return self._v.m._body(self, params)
+EndFunction
+
+;execute a method
+Function DoMethod:_class(name, ...)
+	Return self.DoParentMethod(name, p_RawArg(arg))
+EndFunction
+
+;*****************************************************************************
+;interfaces
+;*****************************************************************************
+
+;declare in the global interface table
+;implied is a table containing the additional interfaces implied by this one
+Function Interface:_class(name, implied, ...)
+	If GetType(implied)<>#TABLE
+		Error("Implied interfaces must be passed in a table")
+	EndIf
+	If GetType(name)<>#STRING
+		Error("Illegal type name on interface")
+	EndIf
+	If LeftStr(name, 1) = "_"
+		Error("Protected interfaces not allowed")
+	EndIf
+	Local iface={}, buf={}, i
+	For i In arg
+		If LeftStr(i,1)="_"
+			Error("Underscore indicates illegal private member in interface")
+		EndIf
+		buf[i]=True
+	Next
+	iface["_body"]=buf
+
+	; check for illegal implied interfaces
+	For i In implied
+		If IsNil(RawGet(_class._interface, i))
+			Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
+		Next
+	Next
+	iface["_imply"]=implied
+	_class._interface[name]=iface	
+EndFunction
+
+Function _IFaceWorkLoop:_class(name, buf, body)
+	Local iter
+	For(Local i In body)
+		iter=self.GetMethod(i)
+		If IsNil(iter)
+			Return buf, True ;not found
+		EndIf
+		buf[i]=iter
+	Next
+	Return buf, False
+EndFunction
+
+; interface implementation access
+Function GetImplementation:_class(name)
+	Local iface = RawGet(_class._interface, name), buf={}, iter, problem
+	If IsNil(iface) Then Error("Undefined interface")
+	buf["_implementation"]=name
+	buf["_target"]=self
+	For(Local i In iface._imply)
+		buf, problem=_class._IFaceWorkLoop(name, buf, i)
+		If problem
+			Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
+		EndIf
+	Next
+	buf, problem=_class._IFaceWorkLoop(name, buf, iface._body)
+	If problem
+		Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
+	EndIf
+	Return buf
+EndFunction
+
+;check if current class implements an interface
+;returns boolean result
+Function DoesImplement:_class(interface)
+	local iface = _class._interface[interface], buf={}, problem
+	For(local i In iface._imply)
+		buf, problem=_class._IFaceWorkLoop(name, buf, i)
+		If problem Then Return False
+	Next
+	buf, problem=_class._IFaceWorkLoop(name, buf, iface._body)
+	Return Not(problem)
+EndFunction
+
+;*****************************************************************************
+;allocation of new classes
+;*****************************************************************************
+
+;inheritance allocation worker method
+;iface is a set of names of interfaces implemented
+Function _inherit:_class(parent, iface)
+	Local c={}
+	c["_v"]=CopyTable(parent._v)
+	c["_data"]=CopyTable(parent._data)
+	c["_implement"]=CopyTable(parent._implement)
+	c["_parent"]=parent
+
+	;implement additional interfaces
+	For (local i In iface)
+		If IsNil(RawGet(_class._interface, i))
+			Error("Interface not defined")
+		EndIf
+		If Not(c.DoesImplement(i))
+			Error("Does not implement all methods of interface " .. i)
+		EndIf
+		_class._interface[i]=i._body
+	Next
+	Return c
+EndFunction
+
+;inherit from parent and implement additional interfaces
+Function Extend:_class(parent, ...)
+	Return self._inherit(parent, p_RawArg(arg))
+EndFunction
+
+;new class inherits only from root class
+Function Alloc(...)
+	Return _class._inherit(_class, p_RawArg(arg))
+EndFunction
+
+;*****************************************************************************
+;data members
+;*****************************************************************************
+
+; member declaration
+; value is a default and must be associated with a type
+Function Member:_class(name, value)
+	self._data[name]=value
+EndFunction
+
+; static member declaration
+Function StaticMember(name, value)
+	_class._static[name]=value
+EndFunction
+
+;*****************************************************************************
+;accessor methods
+;*****************************************************************************
+
+;default getter method
+_class._v["Get"]=Function(self, name)
+	If (LeftStr(name, 1)="_")
+		Error("Protected field requested by public getter")
+	EndIf
+	Local value=RawGet(self._data, name), p=self._parent
+	While (value = Nil And p)
+		value=RawGet(p, name)
+		p=RawGet(p, "_parent")
+	Wend
+	Return value
+EndFunction
+
+;default setter method
+_class._v["Set"]=Function(self, name, value)
+	If (LeftStr(name,1)="_")
+		Error("Public setter attempted to write to a protected field"
+	Else
+		self._data[name]=value
+	EndIf
+EndFunction
+
+;*****************************************************************************
+;type checking
+;*****************************************************************************
+Function TypeOf:_class(...)
+	Switch (arg.n)
+		Case 0:
+			; type of self
+			Local n=RawGet(self, "_name")
+			If n
+				Return n
+			Else
+				n=RawGet(self, "_implementation")
+				If n Then Return n .. " interface"
+				Error("Unknown class encountered")
+			EndIf
+		Case 1:
+			Local a=arg[0], n=self.Get(a)
+			If n
+				Switch (GetType(n))
+					Case #NUMBER:
+						Return "Number"
+					Case #FUNCTION:
+						Return "Function"
+					Case #STRING:
+						Return "String"
+					Case #TABLE:
+						Return "Table"
+					Default:
+						Error "Unknown type encountered"
+				EndSwitch
+			Else
+				Local f, c=self.GetMethod(a)
+				If f Then Return "Method from class " .. c._name
+				Return "Undefined"
+			EndIf
+		Default:
+			Error("Too many arguments in TypeOf function")
+	EndSwitch
+	Error("Control flow error")
+EndFunction
+
+;class type check
+Function IsTypeOf:_class(query)
+	Local i=self
+	While Not IsNil(i)
+		If i=query Then Return True
+		i=RawGet(i, "_parent")
+	Wend
+	Return False
+EndFunction
+
