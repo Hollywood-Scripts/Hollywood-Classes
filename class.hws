@@ -9,6 +9,7 @@
 
 ;TODO add checking
 ;TODO add exception handling support
+;TODO convert type checking to return enumerated constants
 ;TODO add locale support to error messages and data types
 
 Global _class={} ;namespace
@@ -98,35 +99,34 @@ Function Interface:_class(name, implied, ...)
 	If LeftStr(name, 1) = "_"
 		Error("Protected interfaces not allowed")
 	EndIf
-	Local iface={}, buf={}, i
-	For i In arg
+
+	Local iface={}, buf={}, i, j, a=p_RawArg(arg)
+
+	; check for illegal implied interfaces
+	For i In implied
+		local ibuf=RawGet(_class._interface, i) ; implementation buffer
+		If IsNil(ibuf)
+			Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
+		EndIf
+		; add methods to buf so duplicates can be detected later
+		For j In ibuf._body
+			buf[j]=True
+		Next
+	Next
+
+	For i In a
 		If LeftStr(i,1)="_"
-			Error("Underscore indicates illegal private member in interface")
+			Error("Underscore indicates illegal protected member\nin interface " .. name)
+		EndIf
+		If RawGet(buf, i)
+			Error("Duplicate definition of method " .. i .. "\nin interface " .. name)
 		EndIf
 		buf[i]=True
 	Next
 	iface["_body"]=buf
 
-	; check for illegal implied interfaces
-	For i In implied
-		If IsNil(RawGet(_class._interface, i))
-			Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
-		Next
-	Next
 	iface["_imply"]=implied
 	_class._interface[name]=iface	
-EndFunction
-
-Function _IFaceWorkLoop:_class(name, buf, body)
-	Local iter
-	For(Local i In body)
-		iter=self.GetMethod(i)
-		If IsNil(iter)
-			Return buf, True ;not found
-		EndIf
-		buf[i]=iter
-	Next
-	Return buf, False
 EndFunction
 
 ; interface implementation access
@@ -135,16 +135,20 @@ Function GetImplementation:_class(name)
 	If IsNil(iface) Then Error("Undefined interface")
 	buf["_implementation"]=name
 	buf["_target"]=self
-	For(Local i In iface._imply)
-		buf, problem=_class._IFaceWorkLoop(name, buf, i)
-		If problem
+	Local iter
+	For(Local i In iface._body)
+		iter=self.GetMethod(i)
+		If IsNil(iter)
 			Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
 		EndIf
+		;wrap method to fix self pointer
+		buf[i]=Function(...)
+			local a=arg
+			a.n=Nil
+			a[0]=buf._target
+			Return iter(Unpack(a))
+		EndFunction
 	Next
-	buf, problem=_class._IFaceWorkLoop(name, buf, iface._body)
-	If problem
-		Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
-	EndIf
 	Return buf
 EndFunction
 
@@ -192,7 +196,7 @@ Function Extend:_class(parent, ...)
 EndFunction
 
 ;new class inherits only from root class
-Function Alloc(...)
+Function New(...)
 	Return _class._inherit(_class, p_RawArg(arg))
 EndFunction
 
@@ -221,7 +225,7 @@ _class._v["Get"]=Function(self, name)
 		Error("Protected field requested by public getter")
 	EndIf
 	Local value=RawGet(self._data, name), p=self._parent
-	While (value = Nil And p)
+	While (IsNil(value) And p)
 		value=RawGet(p, name)
 		p=RawGet(p, "_parent")
 	Wend
@@ -232,9 +236,8 @@ EndFunction
 _class._v["Set"]=Function(self, name, value)
 	If (LeftStr(name,1)="_")
 		Error("Public setter attempted to write to a protected field"
-	Else
-		self._data[name]=value
 	EndIf
+	self._data[name]=value
 EndFunction
 
 ;*****************************************************************************
@@ -243,7 +246,7 @@ EndFunction
 Function TypeOf:_class(...)
 	Switch (arg.n)
 		Case 0:
-			; type of self
+			; type of self as class or interface
 			Local n=RawGet(self, "_name")
 			If n
 				Return n
@@ -253,6 +256,7 @@ Function TypeOf:_class(...)
 				Error("Unknown class encountered")
 			EndIf
 		Case 1:
+			; type of primitive
 			Local a=arg[0], n=self.Get(a)
 			If n
 				Switch (GetType(n))
@@ -268,7 +272,7 @@ Function TypeOf:_class(...)
 						Error "Unknown type encountered"
 				EndSwitch
 			Else
-				Local f, c=self.GetMethod(a)
+				Local f, c=self.GetMethod(a) ; NOTE: two return codes
 				If f Then Return "Method from class " .. c._name
 				Return "Undefined"
 			EndIf
@@ -278,7 +282,7 @@ Function TypeOf:_class(...)
 	Error("Control flow error")
 EndFunction
 
-;class type check
+; subclass type check
 Function IsTypeOf:_class(query)
 	Local i=self
 	While Not IsNil(i)
