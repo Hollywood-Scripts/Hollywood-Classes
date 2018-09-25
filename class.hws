@@ -10,7 +10,6 @@
 ;TODO add checking
 ;TODO add exception handling support
 ;TODO convert type checking to return enumerated constants
-;TODO add locale support to error messages and data types
 
 Global _class={} ;namespace
 
@@ -19,11 +18,76 @@ Const #CLASS = True
 
 ;_parent is deliberately left undefined for root class
 _class["_interface"]={} ;global interface table
-_class["_static"]={} ;global static member table
+_class["_error"]={} ;locale specific error functions
+_class["_static"]={} ;static members
 _class["_name"]="Root Class"
+_class["_func"]={} ;static functions
 _class["_v"]={} ;vector table
 _class["_data"]={} ;fields
 _class["_implement"]={} ;interfaces implemented
+
+;*****************************************************************************
+;error messages
+;*****************************************************************************
+Switch(GetSystemLanguage())
+Case #LANGUAGE_ENGLISH:
+	FallThrough
+Default:
+	_class._error["MethodExists"]=Function(name)
+		Error(name .. " method already exists\nin class " .. self._name)
+	EndFunction
+	_class._error["MethodTable"]=Function()
+		Error("Method parameter defaults must be passed as a table")
+	EndFunction
+	_class._error["MethodNotFound"]=Function()
+		Error("Method not found")
+	EndFunction
+	_class._error["NoParent"]=Function()
+		Error("No parent class for method call")
+	EndFunction
+	_class._error["ImpliedTable"]=Function()
+		Error("Implied interfaces must be passed in a table")
+	EndFunction
+	_class._error["InterfaceName"]=Function()
+		Error("Illegal type name on interface")
+	EndFunction
+	_class._error["ProtectedInterface"]=Function()
+		Error("Protected interfaces not allowed")
+	EndFunction
+	_class._error["InterfaceDoesNotExist"]=Function(i, name)
+		Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
+	EndFunction
+	_class._error["Underscore"]=Function(name)
+		Error("Underscore indicates illegal protected member\nin interface " .. name)
+	EndFunction
+	_class._error["DuplicateDefinition"]=Function(i, name)
+		Error("Duplicate definition of method " .. i .. "\nin interface " .. name)
+	EndFunction
+	_class._error["InterfaceNoMethod"]=Function(i, name)
+		Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
+	EndFunction
+	_class._error["InterfaceUndefined"]=Function()
+		Error("Interface not defined")
+	EndFunction
+	_class._error["MissingMethod"]=Function(i)
+			Error("Does not implement all methods of interface " .. i)
+	EndFunction
+	_class._error["ProtectedGetter"]=Function()
+		Error("Protected field requested by public getter")
+	EndFunction
+	_class._error["ProtectedSetter"]=Function()
+		Error("Public setter attempted to write to a protected field"
+	EndFunction
+	_class._error["UnknownClass"]=Function()
+		Error("Unknown class encountered")
+	EndFunction
+	_class._error["UnknownType"]=Function()
+		Error("Unknown type encountered")
+	EndFunction
+	_class._error["TypeOfArgs"]=Function()
+		Error("Too many arguments in TypeOf function")
+	EndFunction
+EndSwitch
 
 ;*****************************************************************************
 ;helper functions
@@ -43,12 +107,8 @@ EndFunction
 ; params is table containing default values of each parameter key
 ; body is an actual function definition with self passed as first argument
 Function Method:_class(name, params, body)
-	If RawGet(self, name)
-		Error(name .. " method already exists\nin class " .. self._name)
-	EndIf
-	If GetType(params) <> #TABLE
-		Error("Method parameter defaults must be passed as a table")
-	EndIf
+	If RawGet(self, name) Then _class._error.MethodExists(name)
+	If GetType(params) <> #TABLE Then _class._error.MethodTable()
 	Local buf={}
 	buf["_body"]=body
 	buf["_params"]=params
@@ -67,21 +127,30 @@ Function GetMethod:_class(name)
 	Return Nil, Nil
 EndFunction
 
-;inherit from parent method
-Function DoParentMethod:_class(name, params)
+Function _MethodWorker:_class(name, fn, params)
 	Local m, c=self.GetMethod(name)
+
+	If IsNil(c) Then _class._error.MethodNotFound()
 
 	;propogate default entries
 	For Local i In m._params
 		If IsNil(RawGet(params, i)) Then params[i]=m._pararms.i
 	Next
-	Return self._v.m._body(self, params)
+	Return fn(self, params)
 EndFunction
 
 ;execute a method
 Function DoMethod:_class(name, ...)
-	Return self.DoParentMethod(name, p_RawArg(arg))
+	Return self:_MethodWorker(name, self._v.m._body, p_RawArg(arg))
 EndFunction
+
+;inherit from parent method
+Function DoParentMethod:_class(name, ...)
+	Local _p=RawGet(self, "_parent")
+	If IsNil(_p) Then _class._error.NoMethod()
+	Return self:_MethodWorker(_p._name, _p._v.m._body, p_RawArg(arg))
+EndFunction
+
 
 ;*****************************************************************************
 ;interfaces
@@ -90,24 +159,17 @@ EndFunction
 ;declare in the global interface table
 ;implied is a table containing the additional interfaces implied by this one
 Function Interface:_class(name, implied, ...)
-	If GetType(implied)<>#TABLE
-		Error("Implied interfaces must be passed in a table")
-	EndIf
-	If GetType(name)<>#STRING
-		Error("Illegal type name on interface")
-	EndIf
-	If LeftStr(name, 1) = "_"
-		Error("Protected interfaces not allowed")
-	EndIf
+	If GetType(implied)<>#TABLE Then _class._error.ImpliedTable()
+	If GetType(name)<>#STRING Then _class._error.InterfaceName()
+	If LeftStr(name, 1) = "_" Then _class._error.ProtectedInterface()
 
 	Local iface={}, buf={}, i, j, a=p_RawArg(arg)
 
 	; check for illegal implied interfaces
 	For i In implied
 		local ibuf=RawGet(_class._interface, i) ; implementation buffer
-		If IsNil(ibuf)
-			Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
-		EndIf
+		If IsNil(ibuf) Then _class._error.InterfaceDoesNotExist(i, name)
+
 		; add methods to buf so duplicates can be detected later
 		For j In ibuf._body
 			buf[j]=True
@@ -115,12 +177,8 @@ Function Interface:_class(name, implied, ...)
 	Next
 
 	For i In a
-		If LeftStr(i,1)="_"
-			Error("Underscore indicates illegal protected member\nin interface " .. name)
-		EndIf
-		If RawGet(buf, i)
-			Error("Duplicate definition of method " .. i .. "\nin interface " .. name)
-		EndIf
+		If LeftStr(i,1)="_" Then _class._error.Underscore(name)
+		If RawGet(buf, i) Then _class._error.DuplicateDefinition(i, name)
 		buf[i]=True
 	Next
 	iface["_body"]=buf
@@ -132,15 +190,13 @@ EndFunction
 ; interface implementation access
 Function GetImplementation:_class(name)
 	Local iface = RawGet(_class._interface, name), buf={}, iter, problem
-	If IsNil(iface) Then Error("Undefined interface")
+	If IsNil(iface) Then _class._error.UndefinedInterface()
 	buf["_implementation"]=name
 	buf["_target"]=self
 	Local iter
 	For(Local i In iface._body)
 		iter=self.GetMethod(i)
-		If IsNil(iter)
-			Error(i .. " method not implemented\nfrom implementation of interface\n" .. name)
-		EndIf
+		If IsNil(iter) Then _class._error.InterfaceNoMethod(i, name)
 		;wrap method to fix self pointer
 		buf[i]=Function(...)
 			local a=arg
@@ -179,12 +235,10 @@ Function _inherit:_class(parent, iface)
 
 	;implement additional interfaces
 	For (local i In iface)
-		If IsNil(RawGet(_class._interface, i))
-			Error("Interface not defined")
+		If IsNil(RawGet(_class._interface, i)) 
+			_class._error.InterfaceUndefined()
 		EndIf
-		If Not(c.DoesImplement(i))
-			Error("Does not implement all methods of interface " .. i)
-		EndIf
+		If Not(c.DoesImplement(i)) Then _class._error.MissingMethod(i)
 		_class._interface[i]=i._body
 	Next
 	Return c
@@ -221,9 +275,7 @@ EndFunction
 
 ;default getter method
 _class._v["Get"]=Function(self, name)
-	If (LeftStr(name, 1)="_")
-		Error("Protected field requested by public getter")
-	EndIf
+	If (LeftStr(name, 1)="_") Then _class._error.ProtectedGetter()
 	Local value=RawGet(self._data, name), p=self._parent
 	While (IsNil(value) And p)
 		value=RawGet(p, name)
@@ -234,26 +286,29 @@ EndFunction
 
 ;default setter method
 _class._v["Set"]=Function(self, name, value)
-	If (LeftStr(name,1)="_")
-		Error("Public setter attempted to write to a protected field"
-	EndIf
+	If (LeftStr(name,1)="_") Then _class._error.ProtectedSetter()
 	self._data[name]=value
 EndFunction
 
 ;*****************************************************************************
 ;type checking
 ;*****************************************************************************
+
+Const #TYPE_NIL=0, #TYPE_NUMBER=1, #TYPE_STRING=2, #TYPE_FUNCTION=3,
+	#TYPE_TABLE=4, #TYPE_CLASS=5, #TYPE_INTERFACE=6, #TYPE_UNDEFINED=7,
+	#TYPE_METHOD=8
+
 Function TypeOf:_class(...)
 	Switch (arg.n)
 		Case 0:
 			; type of self as class or interface
 			Local n=RawGet(self, "_name")
 			If n
-				Return n
+				Return #TYPE_CLASS
 			Else
 				n=RawGet(self, "_implementation")
-				If n Then Return n .. " interface"
-				Error("Unknown class encountered")
+				If n Then Return #TYPE_INTERFACE
+				_class._error.UnknownClass()
 			EndIf
 		Case 1:
 			; type of primitive
@@ -261,25 +316,24 @@ Function TypeOf:_class(...)
 			If n
 				Switch (GetType(n))
 					Case #NUMBER:
-						Return "Number"
+						Return #TYPE_NUMBER
 					Case #FUNCTION:
-						Return "Function"
+						Return #TYPE_FUNCTION
 					Case #STRING:
-						Return "String"
+						Return #TYPE_STRING
 					Case #TABLE:
-						Return "Table"
+						Return #TYPE_TABLE
 					Default:
-						Error "Unknown type encountered"
+						_class._error.UnknownType()
 				EndSwitch
 			Else
 				Local f, c=self.GetMethod(a) ; NOTE: two return codes
-				If f Then Return "Method from class " .. c._name
-				Return "Undefined"
+				If f Then Return #TYPE_METHOD
+				Return #TYPE_UNDEFINED
 			EndIf
 		Default:
-			Error("Too many arguments in TypeOf function")
+			_class._error.TypeOfArgs()
 	EndSwitch
-	Error("Control flow error")
 EndFunction
 
 ; subclass type check
