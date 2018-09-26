@@ -4,25 +4,22 @@
 ** by Samuel D. Crow
 */
 
+@INCLUDE "class.hws"
 @INCLUDE "enum.hws"
 
 /*
 ** Unit test
 */
-Local test=Enum.new(0,"illegal","a","b","c")
+Local test=Enum:Init("illegal","a","b","c")
 test:dump()
-Local test2=test:extend("d","e","f")
+Local test2=test:DoMethod("Extend","d","e","f")
 test2:dump()
-Assert(test._end=3)
-Assert(test._start=0)
-Assert(test2._end=6)
-Assert(test2._start=test._start)
+Assert(test._data._end=3)
+Assert(test._data._start=0)
+Assert(test2._data._end=6)
+Assert(test2._data._start=test._start)
 test:append("d","e","f")
 test:dump()
-Assert(test._end=6)
-Assert(HaveItem(test2,"_reflection")=False)
-test2:CreateReflection()
-test2:dump()
-Assert(HaveItem(test2,"_reflection"))
+Assert(test._data._end=6)
 DebugPrint("Success")
 End

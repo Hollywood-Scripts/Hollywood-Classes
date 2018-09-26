@@ -4,88 +4,116 @@
 ** an Enumeration class
 ** by Samuel D. Crow
 **
+** See LICENSE file for copyright details
 */
-Global Enum={} ; Allocate the table for the interface
-Enum._v={} ; Allocate vtable for class methods
+@IF #CLASS<>True
+	@ERROR "Must @INCLUDE \"class.hws\" before including enum.hws"
+@ENDIF
 
-/*
-** New()
-**
-** Initializes a new enumeration
-**
-** Notes:  It is recommended to have 0 as the start parameter for most occasions
-**    and set it to indicate an uninitialized value has been used.
-**
-**    
-*/
-Function Enum.New(starting, ...)
-	Local tbl = CopyTable(Enum._v) ; Instatiate base class
-	tbl["_start"] = starting
-	tbl["_end"] = starting+arg.n-1
-	tbl["_data"]={}
-	For Local count = starting To tbl._end Do tbl._data[arg[count-starting]] = count
-	Return(tbl)
-EndFunction
+Const #ENUM=True
 
-/*
-** Dump()
-**
-** Outputs the contents of an enumeration class to the debug output
-*/
-Function Enum._v.dump(self)
-	DebugPrint("_start=" .. self._start)
-	DebugPrint("_end=" .. self._end)
-	DebugPrint("_data={")
-	For i,j In Pairs(self._data)
-		DebugPrint("  " .. i .. "=" .. j)
-	Next
-	DebugPrint("}")
-	If HaveItem(self,"_reflection")
-		DebugPrint("_reflection={")
-		For i,j In Pairs(self._reflection)
-			DebugPrint("  ".. i .. "=" .. j)
-		Next
-		DebugPrint("}")
-	EndIf
-EndFunction
+Global Enum=New("enumeration")
+Enum.Interface("Enumerable", {"Iteratable"}, "GetEnum")
 
+Switch(GetSystemLanguage())
+Case #LANGUAGE_ENGLISH:
+	FallThrough
+Default:
+	Enum["_error"]={
+		"TableRequired"=Function()
+			Error("Table required")
+		EndFunction
+	}
+EndSwitch
 /*
-** CreateReflection()
-**
-** Creates a "reflection" table to link values back to their keys
-*/
-Function Enum._v.CreateReflection(self)
-	If HaveItem(self,"_reflection") Then Return
-	self._reflection={}
-	For i,j In Pairs(self._data)
-		self._reflection[j]=i
-	Next
-EndFunction
-
-/*
-** Append()
-**
 ** Add items to the current enumeration
 */
-Function Enum._v.append(self, ...)
+Enum:Method("Append", {}, Function(self, ...)
 	Local ending = self._end+arg.n
 	Local starting = self._end+1
-	For Local count = starting To ending Do self._data[arg[count-starting]] = count
+	For Local count = starting To ending
+		self:Member(arg[count-starting], count)
+	Next
 	self["_end"] = ending
-	If HaveItem(self, "_reflection")
-		For count = starting To ending Do self._reflection[count] = arg[count-starting]
-	EndIf
-EndFunction
+EndFunction)
 
 /*
-** Extend()
-**
 ** Create child enumeration of existing one
 */
-Function Enum._v.extend(self, Reflect, ...)
-	Local tbl = CopyTable(self)
-	If HaveItem(tbl, "_reflection") And (Reflect = False) Then tbl._reflection = Nil
-	tbl:append(Unpack(arg))
+Enum:Method("Extend", {}, Function(self, name, ...)
+	Local tbl = self:DoParentMethod("Extend", name) ;no added interfaces
+	tbl:DoMethod("Append", Unpack(arg))
 	Return(tbl)
-EndFunction
+EndFunction)
+
+/*
+** Initializes a new enumeration
+**
+** Notes:  It is recommended to leave the start parameter at the default for
+** most occasions and set the first value to indicate an uninitialized state.
+*/
+Enum:Method("Init", {starting=0}, Function(self, name, param)
+	If GetType(param) <> #TABLE Then Enum:_error.TableRequired()
+	Local tbl = Enum:Extend(name),
+		EndEnum = TableItems(param)-1,
+		s = RawGet(param, "starting"), r$
+	;alternate starting point indicated
+	If s
+		starting = s
+		; starting represents a param entry so decrement by one to compensate
+		EndEnum = EndEnum+s-1
+	EndIf
+	tbl:Member("_start", starting)
+	tbl:Member("_end", endenum)
+	For Local count = starting To EndEnum
+		r$=arg[count-starting]
+		If LeftStr(r$, 1)="_"
+			_class._error.Underscore(name)
+		EndIf
+		tbl:Member(r$, count)
+		tbl:Member(count, r$)
+	Next
+	Return(tbl)
+EndFunction)
+
+/*
+** Enum getter
+*/
+Enum:Method("GetEnum", {}, Function(self, key)
+	Return self:Get(key)
+EndFunction)
+
+/*
+** Start iterator
+*/
+Enum:Method("Start", {}, Function(self)
+	Local iter={}
+	iter["value"]=self:Get("_start")
+	iter["_end"]=self:Get("_end")
+	Return iter
+EndFunction)
+
+/*
+** Get next iteration
+*/
+Enum:Method("GetNext", {}, Function(self, iter)
+	iter.value=iter.value+1
+	If iter.value > iter._end Then iter=Nil
+	Return iter
+EndFunction)
+
+/*
+** Outputs the contents of an enumeration class to the debug output
+*/
+Enum:Method("Dump", {}, Function(self)
+	DebugPrint("end=" .. self:Get("_end"))
+	DebugPrint("start=" .. self:Get("_start"))
+	DebugPrint("data={")
+	Local i=self:Start()
+	While i
+		DebugPrint("  " .. i.value .. "=" .. self:GetEnum(i.value))
+		i.GetNext()
+	Wend
+	DebugPrint("}")
+EndFunction)
 

@@ -9,7 +9,7 @@
 
 ;TODO add checking
 ;TODO add exception handling support
-;TODO convert type checking to return enumerated constants
+;TODO add static function support
 
 Global _class={} ;namespace
 
@@ -58,7 +58,7 @@ Default:
 		Error("Non-existant interface " .. i .. "\nis implied by interface " .. name)
 	EndFunction
 	_class._error["Underscore"]=Function(name)
-		Error("Underscore indicates illegal protected member\nin interface " .. name)
+		Error("Underscore indicates illegal protected member\nin " .. name)
 	EndFunction
 	_class._error["DuplicateDefinition"]=Function(i, name)
 		Error("Duplicate definition of method " .. i .. "\nin interface " .. name)
@@ -76,7 +76,7 @@ Default:
 		Error("Protected field requested by public getter")
 	EndFunction
 	_class._error["ProtectedSetter"]=Function()
-		Error("Public setter attempted to write to a protected field"
+		Error("Public setter attempted to write to a protected field")
 	EndFunction
 	_class._error["UnknownClass"]=Function()
 		Error("Unknown class encountered")
@@ -94,10 +94,10 @@ EndSwitch
 ;*****************************************************************************
 
 ;clear parameter number from vararg table to avoid namespace issues
-Function p_RawArg(a)
-	RawSet(a, "n", Nil)
-	Return a
-EndFunction
+;Function p_RawArg(a)
+;	RawSet(a, "n", Nil)
+;	Return(a)
+;EndFunction
 
 ;*****************************************************************************
 ;methods
@@ -106,7 +106,7 @@ EndFunction
 ; method declaration
 ; params is table containing default values of each parameter key
 ; body is an actual function definition with self passed as first argument
-Function Method:_class(name, params, body)
+Function _class:Method(name, params, body)
 	If RawGet(self, name) Then _class._error.MethodExists(name)
 	If GetType(params) <> #TABLE Then _class._error.MethodTable()
 	Local buf={}
@@ -117,38 +117,38 @@ Function Method:_class(name, params, body)
 EndFunction
 
 ; return method and containing class if they are available
-Function GetMethod:_class(name)
+Function _class:GetMethod(name)
 	Local c=self, m
 	Repeat
 		m=RawGet(c._v, name)
-		If m Then Return m, c
+		If m Then Return(m, c)
 		c=RawGet(c, "_parent") ; check for inheritance
 	Until IsNil(c)
-	Return Nil, Nil
+	Return(Nil, Nil)
 EndFunction
 
-Function _MethodWorker:_class(name, fn, params)
+Function _class:_MethodWorker(name, fn, params)
 	Local m, c=self.GetMethod(name)
 
 	If IsNil(c) Then _class._error.MethodNotFound()
 
 	;propogate default entries
-	For Local i In m._params
+	For i In m._params
 		If IsNil(RawGet(params, i)) Then params[i]=m._pararms.i
 	Next
-	Return fn(self, params)
+	Return(fn(self, params))
 EndFunction
 
 ;execute a method
-Function DoMethod:_class(name, ...)
-	Return self:_MethodWorker(name, self._v.m._body, p_RawArg(arg))
+Function _class:DoMethod(name, ...)
+	Return(self:_MethodWorker(name, self._v.m._body, p_RawArg(arg)))
 EndFunction
 
 ;inherit from parent method
-Function DoParentMethod:_class(name, ...)
+Function _class:DoParentMethod(name, ...)
 	Local _p=RawGet(self, "_parent")
 	If IsNil(_p) Then _class._error.NoMethod()
-	Return self:_MethodWorker(_p._name, _p._v.m._body, p_RawArg(arg))
+	Return(self:_MethodWorker(_p._name, _p._v.m._body, p_RawArg(arg)))
 EndFunction
 
 
@@ -158,28 +158,28 @@ EndFunction
 
 ;declare in the global interface table
 ;implied is a table containing the additional interfaces implied by this one
-Function Interface:_class(name, implied, ...)
+Function _class:Interface(name, implied, ...)
 	If GetType(implied)<>#TABLE Then _class._error.ImpliedTable()
 	If GetType(name)<>#STRING Then _class._error.InterfaceName()
 	If LeftStr(name, 1) = "_" Then _class._error.ProtectedInterface()
 
-	Local iface={}, buf={}, i, j, a=p_RawArg(arg)
+	Local iface={}, buf={}, s, s2, i, j
 
 	; check for illegal implied interfaces
-	For i In implied
-		local ibuf=RawGet(_class._interface, i) ; implementation buffer
+	For s, i In Pairs(implied)
+		Local ibuf=RawGet(_class._interface, i) ; implementation buffer
 		If IsNil(ibuf) Then _class._error.InterfaceDoesNotExist(i, name)
 
 		; add methods to buf so duplicates can be detected later
-		For j In ibuf._body
-			buf[j]=True
+		For j, s2 In Pairs(ibuf._body)
+			RawSet(buf, j, True)
 		Next
 	Next
 
-	For i In a
-		If LeftStr(i,1)="_" Then _class._error.Underscore(name)
+	For s, i In IPairs(arg)
+		If LeftStr(i,1)="_" Then _class._error.Underscore("interface " .. name)
 		If RawGet(buf, i) Then _class._error.DuplicateDefinition(i, name)
-		buf[i]=True
+		RawSet(buf, i, True)
 	Next
 	iface["_body"]=buf
 
@@ -188,13 +188,13 @@ Function Interface:_class(name, implied, ...)
 EndFunction
 
 ; interface implementation access
-Function GetImplementation:_class(name)
+Function _class:GetImplementation(name)
 	Local iface = RawGet(_class._interface, name), buf={}, iter, problem
 	If IsNil(iface) Then _class._error.UndefinedInterface()
 	buf["_implementation"]=name
 	buf["_target"]=self
 	Local iter
-	For(Local i In iface._body)
+	For i In iface._body
 		iter=self.GetMethod(i)
 		If IsNil(iter) Then _class._error.InterfaceNoMethod(i, name)
 		;wrap method to fix self pointer
@@ -202,22 +202,22 @@ Function GetImplementation:_class(name)
 			local a=arg
 			a.n=Nil
 			a[0]=buf._target
-			Return iter(Unpack(a))
+			Return(iter(Unpack(a)))
 		EndFunction
 	Next
-	Return buf
+	Return(buf)
 EndFunction
 
 ;check if current class implements an interface
 ;returns boolean result
-Function DoesImplement:_class(interface)
+Function _class:DoesImplement(interface)
 	local iface = _class._interface[interface], buf={}, problem
-	For(local i In iface._imply)
+	For i In iface._imply
 		buf, problem=_class._IFaceWorkLoop(name, buf, i)
-		If problem Then Return False
+		If problem Then Return(False)
 	Next
 	buf, problem=_class._IFaceWorkLoop(name, buf, iface._body)
-	Return Not(problem)
+	Return(Not(problem))
 EndFunction
 
 ;*****************************************************************************
@@ -226,32 +226,34 @@ EndFunction
 
 ;inheritance allocation worker method
 ;iface is a set of names of interfaces implemented
-Function _inherit:_class(parent, iface)
+Function _class:_inherit(name, parent, iface)
 	Local c={}
 	c["_v"]=CopyTable(parent._v)
 	c["_data"]=CopyTable(parent._data)
 	c["_implement"]=CopyTable(parent._implement)
+	c["_func"]=CopyTable(parent._func)
+	c["_name"]=name
 	c["_parent"]=parent
 
 	;implement additional interfaces
-	For (local i In iface)
+	For i In iface
 		If IsNil(RawGet(_class._interface, i)) 
 			_class._error.InterfaceUndefined()
 		EndIf
 		If Not(c.DoesImplement(i)) Then _class._error.MissingMethod(i)
 		_class._interface[i]=i._body
 	Next
-	Return c
+	Return(c)
 EndFunction
 
 ;inherit from parent and implement additional interfaces
-Function Extend:_class(parent, ...)
-	Return self._inherit(parent, p_RawArg(arg))
+Function _class:Extend(name, ...)
+	Return(self._inherit(name, self._parent, p_RawArg(arg)))
 EndFunction
 
 ;new class inherits only from root class
-Function New(...)
-	Return _class._inherit(_class, p_RawArg(arg))
+Function New(name, ...)
+	Return(_class._inherit(name, _class, p_RawArg(arg)))
 EndFunction
 
 ;*****************************************************************************
@@ -260,7 +262,7 @@ EndFunction
 
 ; member declaration
 ; value is a default and must be associated with a type
-Function Member:_class(name, value)
+Function _class:Member(name, value)
 	self._data[name]=value
 EndFunction
 
@@ -281,7 +283,7 @@ _class._v["Get"]=Function(self, name)
 		value=RawGet(p, name)
 		p=RawGet(p, "_parent")
 	Wend
-	Return value
+	Return(value)
 EndFunction
 
 ;default setter method
@@ -294,20 +296,26 @@ EndFunction
 ;type checking
 ;*****************************************************************************
 
-Const #TYPE_NIL=0, #TYPE_NUMBER=1, #TYPE_STRING=2, #TYPE_FUNCTION=3,
-	#TYPE_TABLE=4, #TYPE_CLASS=5, #TYPE_INTERFACE=6, #TYPE_UNDEFINED=7,
-	#TYPE_METHOD=8
+Const #TYPE_NIL=0
+Const #TYPE_NUMBER=1
+Const #TYPE_STRING=2
+Const #TYPE_FUNCTION=3
+Const #TYPE_TABLE=4
+Const #TYPE_CLASS=5
+Const #TYPE_INTERFACE=6
+Const #TYPE_UNDEFINED=7
+Const #TYPE_METHOD=8
 
-Function TypeOf:_class(...)
+Function _class:TypeOf(...)
 	Switch (arg.n)
 		Case 0:
 			; type of self as class or interface
 			Local n=RawGet(self, "_name")
 			If n
-				Return #TYPE_CLASS
+				Return(#TYPE_CLASS)
 			Else
 				n=RawGet(self, "_implementation")
-				If n Then Return #TYPE_INTERFACE
+				If n Then Return(#TYPE_INTERFACE)
 				_class._error.UnknownClass()
 			EndIf
 		Case 1:
@@ -316,20 +324,20 @@ Function TypeOf:_class(...)
 			If n
 				Switch (GetType(n))
 					Case #NUMBER:
-						Return #TYPE_NUMBER
+						Return(#TYPE_NUMBER)
 					Case #FUNCTION:
-						Return #TYPE_FUNCTION
+						Return(#TYPE_FUNCTION)
 					Case #STRING:
-						Return #TYPE_STRING
+						Return(#TYPE_STRING)
 					Case #TABLE:
-						Return #TYPE_TABLE
+						Return(#TYPE_TABLE)
 					Default:
 						_class._error.UnknownType()
 				EndSwitch
 			Else
 				Local f, c=self.GetMethod(a) ; NOTE: two return codes
-				If f Then Return #TYPE_METHOD
-				Return #TYPE_UNDEFINED
+				If f Then Return(#TYPE_METHOD)
+				Return(#TYPE_UNDEFINED)
 			EndIf
 		Default:
 			_class._error.TypeOfArgs()
@@ -337,12 +345,18 @@ Function TypeOf:_class(...)
 EndFunction
 
 ; subclass type check
-Function IsTypeOf:_class(query)
+Function _class:IsTypeOf(query)
 	Local i=self
 	While Not IsNil(i)
-		If i=query Then Return True
+		If i=query Then Return(True)
 		i=RawGet(i, "_parent")
 	Wend
-	Return False
+	Return(False)
 EndFunction
 
+;*****************************************************************************
+;standard interface definitions
+;*****************************************************************************
+
+;note iterator contents are stored under the "value" key by convention
+_class:Interface("Iteratable", {}, "Start", "GetNext")
